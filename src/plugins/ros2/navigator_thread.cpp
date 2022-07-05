@@ -106,22 +106,22 @@ ROS2NavigatorThread::check_status()
       pose_if_->read();
 
 //  		logger->log_info(name(), "Finished successfully");
-  
+
   		// Check if we reached the goal
   		fawkes::tf::Quaternion q_base_rotation;
   		q_base_rotation.setX(pose_if_->rotation(0));
   		q_base_rotation.setY(pose_if_->rotation(1));
   		q_base_rotation.setZ(pose_if_->rotation(2));
   		q_base_rotation.setW(pose_if_->rotation(3));
-  
+
   		double base_position_x   = pose_if_->translation(0);
   		double base_position_y   = pose_if_->translation(1);
   		double base_position_yaw = fawkes::tf::get_yaw(q_base_rotation);
-  
+
   		double diff_x   = fabs(base_position_x - goal_position_x);
   		double diff_y   = fabs(base_position_y - goal_position_y);
   		double diff_yaw = normalize_mirror_rad(base_position_yaw - goal_position_yaw);
-  
+
   		if (diff_x >= goal_tolerance_trans || diff_y >= goal_tolerance_trans
   		    || diff_yaw >= goal_tolerance_yaw) {
   			nav_if_->set_error_code(NavigatorInterface::ERROR_OBSTRUCTION);
@@ -150,10 +150,10 @@ ROS2NavigatorThread::check_status()
 //				nav_if_->set_error_code(NavigatorInterface::ERROR_NONE);
 //			}
 			nav_if_->write();
-		} else if (goal_handle_->get_status() == rclcpp_action::GoalStatus::STATUS_CANCELED) {
+		} else if (goal_handle_ != nullptr && goal_handle_->get_status() == rclcpp_action::GoalStatus::STATUS_CANCELED) {
 			nav_if_->set_final(true);
 			nav_if_->set_error_code(NavigatorInterface::ERROR_UNKNOWN_PLACE);
-		} else if (goal_handle_->get_status() == rclcpp_action::GoalStatus::STATUS_ABORTED) {
+		} else if (goal_handle_ != nullptr && goal_handle_->get_status() == rclcpp_action::GoalStatus::STATUS_ABORTED) {
 //		} else if (static_cast<rclcpp_action::ResultCode>(goal_handle_->get_status()) == rclcpp_action::ResultCode::ABORTED) {
 			nav_if_->set_final(true);
 			nav_if_->set_error_code(NavigatorInterface::ERROR_PATH_GEN_FAIL);
@@ -169,11 +169,16 @@ ROS2NavigatorThread::check_status()
 
 void
 ROS2NavigatorThread::send_goal()
-{	
+{
+	//stop all beforhand started goals
+  auto t = rclcpp::Time();
+  ac_->async_cancel_goals_before(t);
+  usleep(100000);
+
   // Ensure that all previous goals were stopped.
   logger->log_info(name(), "Send a new goal!");
 //  stop_goals();
-	auto goal_ = NavigateToPose::Goal();
+	goal_ = NavigateToPose::Goal();
 	//get goal from Navigation interface
 	goal_.pose.header.frame_id = nav_if_->target_frame();
 	goal_.pose.header.stamp    = node_handle->get_clock()->now();
@@ -197,7 +202,6 @@ ROS2NavigatorThread::send_goal()
 	nav_if_->set_final(false);
 	nav_if_->set_error_code(0);
 	nav_if_->write();
-	goal_handle_ = goal_handle_future.get();
 
 	cmd_sent_ = true;
 }
@@ -219,6 +223,7 @@ void
 ROS2NavigatorThread::feedbackCb(rclcpp_action::ClientGoalHandle<NavigateToPose>::SharedPtr,
 				const std::shared_ptr<const NavigateToPose::Feedback> feedback)
 {
+
 	base_position = feedback->current_pose;
 }
 
@@ -245,22 +250,22 @@ ROS2NavigatorThread::resultCb(const rclcpp_action::ClientGoalHandle<NavigateToPo
 //		case rclcpp_action::ResultCode::SUCCEEDED:
 //      {
 //  			logger->log_info(name(), "Finished successfully");
-//  
+//
 //  			// Check if we reached the goal
 //  			fawkes::tf::Quaternion q_base_rotation;
 //  			q_base_rotation.setX(pose_if_->rotation(0));
 //  			q_base_rotation.setY(pose_if_->rotation(1));
 //  			q_base_rotation.setZ(pose_if_->rotation(2));
 //  			q_base_rotation.setW(pose_if_->rotation(3));
-//  
+//
 //  			double base_position_x   = pose_if_->translation(0);
 //  			double base_position_y   = pose_if_->translation(1);
 //  			double base_position_yaw = fawkes::tf::get_yaw(q_base_rotation);
-//  
+//
 //  			double diff_x   = fabs(base_position_x - goal_position_x);
 //  			double diff_y   = fabs(base_position_y - goal_position_y);
 //  			double diff_yaw = normalize_mirror_rad(base_position_yaw - goal_position_yaw);
-//  
+//
 //  			if (diff_x >= goal_tolerance_trans || diff_y >= goal_tolerance_trans
 //  			    || diff_yaw >= goal_tolerance_yaw) {
 //  				nav_if_->set_error_code(NavigatorInterface::ERROR_OBSTRUCTION);
@@ -355,6 +360,8 @@ ROS2NavigatorThread::stop_goals()
 void
 ROS2NavigatorThread::loop()
 {
+
+
 	if (!ac_->action_server_is_ready()) {
 		fawkes::Time now(clock);
 		if (now - ac_init_checktime_ >= 5.0) {
@@ -598,6 +605,7 @@ ROS2NavigatorThread::loop()
 
 			nav_if_->msgq_pop();
 		} // while
+
 
 		check_status();
 	}
